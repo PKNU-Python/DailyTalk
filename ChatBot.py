@@ -1,10 +1,12 @@
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import Toplevel, Text, Entry, Label, Button, messagebox
+from tkcalendar import Calendar
 import openai
 import os
+from datetime import datetime
 from dotenv import load_dotenv
 
-# 토큰 정보로드
+# 토큰 정보 로드
 load_dotenv()
 
 # OpenAI API 키 설정
@@ -13,39 +15,93 @@ openai.api_key = os.getenv('OPENAI_API_KEY')
 class ChatBot:
     def __init__(self, master):
         self.master = master
-        master.title("ChatBot")
-        master.geometry("700x500")
+        master.title("Diary with AI")
+        master.geometry("800x600")
         master.configure(bg='#202124')
 
-        self.text_frame = tk.Frame(master, bg='#202124')
-        self.text_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+        # 현재 날짜 가져오기
+        today = datetime.now()
+        self.today = today.strftime('%Y-%m-%d')  # YYYY-MM-DD 형식으로 저장
+        self.calendar = Calendar(master, selectmode='day', year=today.year, month=today.month, day=today.day, bg="#303134", fg="white", font=("Arial", 12))
+        self.calendar.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+        self.calendar.bind("<<CalendarSelected>>", self.create_diary_popup)
 
-        self.chat_area = scrolledtext.ScrolledText(self.text_frame, state='disabled', bg="#303134", fg="white", font=("Arial", 12))
-        self.chat_area.pack(fill=tk.BOTH, expand=True)
+        # 날짜별 일기 데이터 저장
+        self.diaries = {}
 
-        self.entry_frame = tk.Frame(master, bg='#202124')
-        self.entry_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
+        # 캘린더에 저장된 일기 표시
+        self.initialize_calendar_events()
 
-        self.user_input = tk.Entry(self.entry_frame, bg="#303134", fg="white", font=("Arial", 12), insertbackground='white')
-        self.user_input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        self.user_input.bind("<Return>", self.send_message)  # 엔터 키 이벤트 바인딩
+    def initialize_calendar_events(self):
+        for date in self.diaries:
+            self.calendar.calevent_create(date, 'Diary Entry', 'diary')
+        self.calendar.tag_config('diary', background='white', foreground='white')
 
-        self.send_button = tk.Button(self.entry_frame, text="Send", command=self.send_message, bg='#5f6368', fg='black', font=("Arial", 12))
-        self.send_button.pack(side=tk.RIGHT)
+    def create_diary_popup(self, event=None):
+        selected_date_str = self.calendar.get_date()
+        
+        self.popup = Toplevel(self.master)
+        self.popup.title(f"Diary Entry for {selected_date_str}")
+        self.popup.geometry("500x600")
+        self.popup.configure(bg='#202124')
 
-    def send_message(self, event=None):  # event 매개변수 추가
-        message = self.user_input.get()
-        if message:
-            self.update_chat("You: " + message)
-            self.user_input.delete(0, tk.END)
-            response = self.get_response_from_openai(message)
-            self.update_chat("Bot: " + response)
+        Label(self.popup, text="Title:", bg='#202124', fg='white', font=("Arial", 12)).pack(pady=(10,0))
+        self.title_entry = Entry(self.popup, bg="#303134", fg="white", font=("Arial", 12))
+        self.title_entry.pack(fill=tk.X, padx=20)
+        self.title_entry.bind("<KeyRelease>", self.validate_title_input)
 
-    def update_chat(self, message):
-        self.chat_area.config(state='normal')
-        self.chat_area.insert(tk.END, message + "\n")
-        self.chat_area.config(state='disabled')
-        self.chat_area.yview(tk.END)
+        Label(self.popup, text="Content:", bg='#202124', fg='white', font=("Arial", 12)).pack(pady=(10,0))
+        self.content_text = Text(self.popup, height=10, bg="#303134", fg="white", font=("Arial", 12))
+        self.content_text.pack(padx=20, pady=(0,10))
+        self.content_text.bind("<KeyRelease>", self.validate_content_input)
+
+        Label(self.popup, text="AI Response:", bg='#202124', fg='white', font=("Arial", 12)).pack(pady=(10,0))
+        self.response_text = Text(self.popup, height=10, bg="#505050", fg="white", font=("Arial", 12))
+        self.response_text.pack(padx=20, pady=(0,10))
+        self.response_text.config(state=tk.DISABLED)
+
+        self.save_button = Button(self.popup, text="Save and Get Response", command=lambda: self.save_diary(selected_date_str), bg='#5f6368', fg='black', font=("Arial", 12))
+        self.save_button.pack(pady=10)
+        self.save_button.config(state=tk.DISABLED)  # Initially disabled
+
+        # Load existing diary if available
+        if selected_date_str in self.diaries:
+            data = self.diaries[selected_date_str]
+            self.title_entry.insert(0, data['title'])
+            self.content_text.insert('1.0', data['content'])
+            self.response_text.config(state=tk.NORMAL)
+            self.response_text.insert('1.0', data['response'])
+            self.response_text.config(state=tk.DISABLED)
+            self.save_button.config(state=tk.DISABLED)
+
+    def validate_title_input(self, event=None):
+        self.check_save_button_state()
+
+    def validate_content_input(self, event=None):
+        self.check_save_button_state()
+
+    def check_save_button_state(self):
+        if self.title_entry.get().strip() and self.content_text.get("1.0", "end-1c").strip():
+            self.save_button.config(state=tk.NORMAL)
+        else:
+            self.save_button.config(state=tk.DISABLED)
+
+    def save_diary(self, date):
+        title = self.title_entry.get()
+        content = self.content_text.get("1.0", tk.END).strip()
+        self.save_button.config(state=tk.DISABLED)  # Disable the button to prevent multiple clicks
+        if date not in self.diaries:
+            response = self.get_response_from_openai(content)
+            self.update_response(response)
+            self.diaries[date] = {'title': title, 'content': content, 'response': response}
+            self.calendar.calevent_create(date, 'Diary Entry', 'diary')
+            self.calendar.see(date)
+
+    def update_response(self, response):
+        self.response_text.config(state=tk.NORMAL)
+        self.response_text.delete('1.0', tk.END)
+        self.response_text.insert(tk.END, response)
+        self.response_text.config(state=tk.DISABLED)
 
     def get_response_from_openai(self, prompt):
         try:
@@ -54,14 +110,6 @@ class ChatBot:
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message['content']
-        except openai.error.RateLimitError as e:
-            return "Sorry, I've reached my usage limit for today. Please try again later."
-        except openai.error.APIError as e:
-            return "API error occurred: " + str(e)
-        except openai.error.AuthenticationError as e:
-            return "Authentication error: Please check your API key."
-        except openai.error.OpenAIError as e:
-            return "An unexpected error occurred: " + str(e)
         except Exception as e:
             return "An error occurred: " + str(e)
 
