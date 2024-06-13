@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import Toplevel, Text, Entry, Label, Button, messagebox
 from tkcalendar import Calendar
+from tkinter import ttk
 import openai
 import os
 from datetime import datetime
@@ -18,6 +19,9 @@ class ChatBot:
         master.title("Diary with AI")
         master.geometry("800x600")
         master.configure(bg='#202124')
+
+        style = ttk.Style()
+        style.theme_use('clam')
 
         # 현재 날짜 가져오기
         today = datetime.now()
