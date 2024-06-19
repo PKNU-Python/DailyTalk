@@ -7,33 +7,34 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv
 
-# 토큰 정보 로드
 load_dotenv()
-
-# OpenAI API 키 설정
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
 class ChatBot:
     def __init__(self, master):
         self.master = master
-        master.title("Diary with AI")
-        master.geometry("800x600")
-        master.configure(bg='#202124')
+        self.configure_master()
+        self.create_calendar()
+        self.load_diaries()
 
+    def configure_master(self):
+        self.master.title("Daily Talk")
+        self.master.geometry("800x600")
+        self.master.configure(bg='#202124')
+
+    def create_calendar(self):
         style = ttk.Style()
         style.theme_use('clam')
 
-        # 현재 날짜 가져오기
-        today = datetime.now()
-        self.today = today.strftime('%Y-%m-%d')  # YYYY-MM-DD 형식으로 저장
-        self.calendar = Calendar(master, selectmode='day', year=today.year, month=today.month, day=today.day, bg="#303134", fg="white", font=("Arial", 12))
+        today = today = datetime.now()
+        self.today = today.strftime('%Y-%m-%d')
+
+        self.calendar = Calendar(self.master, selectmode='day', year=today.year, month=today.month, day=today.day, maxdate=today, bg="#303134", fg="white", font=("Arial", 12))
         self.calendar.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
         self.calendar.bind("<<CalendarSelected>>", self.create_diary_popup)
 
-        # 날짜별 일기 데이터 저장
+    def load_diaries(self):
         self.diaries = {}
-
-        # 캘린더에 저장된 일기 표시
         self.initialize_calendar_events()
 
     def initialize_calendar_events(self):
@@ -66,9 +67,8 @@ class ChatBot:
 
         self.save_button = Button(self.popup, text="Save and Get Response", command=lambda: self.save_diary(selected_date_str), bg='#5f6368', fg='black', font=("Arial", 12))
         self.save_button.pack(pady=10)
-        self.save_button.config(state=tk.DISABLED)  # Initially disabled
-
-        # Load existing diary if available
+        self.save_button.config(state=tk.DISABLED)
+        
         if selected_date_str in self.diaries:
             data = self.diaries[selected_date_str]
             self.title_entry.insert(0, data['title'])
@@ -93,12 +93,12 @@ class ChatBot:
     def save_diary(self, date):
         title = self.title_entry.get()
         content = self.content_text.get("1.0", tk.END).strip()
-        self.save_button.config(state=tk.DISABLED)  # Disable the button to prevent multiple clicks
+        self.save_button.config(state=tk.DISABLED)
         if date not in self.diaries:
             response = self.get_response_from_openai(content)
             self.update_response(response)
             self.diaries[date] = {'title': title, 'content': content, 'response': response}
-            self.calendar.calevent_create(date, 'Diary Entry', 'diary')
+            self.calendar.caleventCreate(date, 'Diary Entry', 'diary')
             self.calendar.see(date)
 
     def update_response(self, response):
