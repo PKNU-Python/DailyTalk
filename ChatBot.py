@@ -1,113 +1,38 @@
-import tkinter as tk
-from tkinter import Toplevel, Text, Entry, Label, Button, messagebox
-from tkcalendar import Calendar
-from tkinter import ttk
-import openai
 import os
 from datetime import datetime
+
+import tkinter as tk
+from tkinter import ttk
+from tkcalendar import Calendar
+from tkinter import Toplevel, Text, Entry, Label, Button
+
+import openai
 from dotenv import load_dotenv
 
-load_dotenv()
-openai.api_key = os.getenv('OPENAI_API_KEY')
+# 환경 설정 및 상수
+class Config:
+    BG_COLOR = '#202124'
+    TEXT_COLOR = '#303134'
+    RESPONSE_BG_COLOR = '#505050'
+    FONT_STYLE = ("Arial", 12)
 
-class ChatBot:
-    def __init__(self, master):
-        self.master = master
-        self.configure_master()
-        self.create_calendar()
-        self.load_diaries()
+    def __init__(self):
+        load_dotenv()
+        self.openai_api_key = os.getenv('OPENAI_API_KEY')
+        if not self.openai_api_key:
+            raise ValueError("OPENAI_API_KEY is MISSING")
 
-    def configure_master(self):
-        self.master.title("Daily Talk")
-        self.master.geometry("800x600")
-        self.master.configure(bg='#202124')
+    @property
+    def openai_key(self):
+        return self.openai_api_key
 
-    def create_calendar(self):
-        style = ttk.Style()
-        style.theme_use('clam')
+# API 통신 관리
+class OpenAIManager:
+    def __init__(self, config):
+        self.config = config
 
-        today = today = datetime.now()
-        self.today = today.strftime('%Y-%m-%d')
-
-        self.calendar = Calendar(self.master, selectmode='day', year=today.year, month=today.month, day=today.day, maxdate=today, bg="#303134", fg="white", font=("Arial", 12))
-        self.calendar.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
-        self.calendar.bind("<<CalendarSelected>>", self.create_diary_popup)
-
-    def load_diaries(self):
-        self.diaries = {}
-        self.initialize_calendar_events()
-
-    def initialize_calendar_events(self):
-        for date in self.diaries:
-            self.calendar.calevent_create(date, 'Diary Entry', 'diary')
-        self.calendar.tag_config('diary', background='white', foreground='white')
-
-    def create_diary_popup(self, event=None):
-        selected_date_str = self.calendar.get_date()
-        
-        self.popup = Toplevel(self.master)
-        self.popup.title(f"Diary Entry for {selected_date_str}")
-        self.popup.geometry("500x600")
-        self.popup.configure(bg='#202124')
-
-        Label(self.popup, text="Title:", bg='#202124', fg='white', font=("Arial", 12)).pack(pady=(10,0))
-        self.title_entry = Entry(self.popup, bg="#303134", fg="white", font=("Arial", 12))
-        self.title_entry.pack(fill=tk.X, padx=20)
-        self.title_entry.bind("<KeyRelease>", self.validate_title_input)
-
-        Label(self.popup, text="Content:", bg='#202124', fg='white', font=("Arial", 12)).pack(pady=(10,0))
-        self.content_text = Text(self.popup, height=10, bg="#303134", fg="white", font=("Arial", 12))
-        self.content_text.pack(padx=20, pady=(0,10))
-        self.content_text.bind("<KeyRelease>", self.validate_content_input)
-
-        Label(self.popup, text="AI Response:", bg='#202124', fg='white', font=("Arial", 12)).pack(pady=(10,0))
-        self.response_text = Text(self.popup, height=10, bg="#505050", fg="white", font=("Arial", 12))
-        self.response_text.pack(padx=20, pady=(0,10))
-        self.response_text.config(state=tk.DISABLED)
-
-        self.save_button = Button(self.popup, text="Save and Get Response", command=lambda: self.save_diary(selected_date_str), bg='#5f6368', fg='black', font=("Arial", 12))
-        self.save_button.pack(pady=10)
-        self.save_button.config(state=tk.DISABLED)
-        
-        if selected_date_str in self.diaries:
-            data = self.diaries[selected_date_str]
-            self.title_entry.insert(0, data['title'])
-            self.content_text.insert('1.0', data['content'])
-            self.response_text.config(state=tk.NORMAL)
-            self.response_text.insert('1.0', data['response'])
-            self.response_text.config(state=tk.DISABLED)
-            self.save_button.config(state=tk.DISABLED)
-
-    def validate_title_input(self, event=None):
-        self.check_save_button_state()
-
-    def validate_content_input(self, event=None):
-        self.check_save_button_state()
-
-    def check_save_button_state(self):
-        if self.title_entry.get().strip() and self.content_text.get("1.0", "end-1c").strip():
-            self.save_button.config(state=tk.NORMAL)
-        else:
-            self.save_button.config(state=tk.DISABLED)
-
-    def save_diary(self, date):
-        title = self.title_entry.get()
-        content = self.content_text.get("1.0", tk.END).strip()
-        self.save_button.config(state=tk.DISABLED)
-        if date not in self.diaries:
-            response = self.get_response_from_openai(content)
-            self.update_response(response)
-            self.diaries[date] = {'title': title, 'content': content, 'response': response}
-            self.calendar.caleventCreate(date, 'Diary Entry', 'diary')
-            self.calendar.see(date)
-
-    def update_response(self, response):
-        self.response_text.config(state=tk.NORMAL)
-        self.response_text.delete('1.0', tk.END)
-        self.response_text.insert(tk.END, response)
-        self.response_text.config(state=tk.DISABLED)
-
-    def get_response_from_openai(self, prompt):
+    def fetch_response(self, prompt):
+        openai.api_key = self.config.openai_key
         try:
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
@@ -117,6 +42,106 @@ class ChatBot:
         except Exception as e:
             return "An error occurred: " + str(e)
 
-root = tk.Tk()
-chat_bot = ChatBot(root)
-root.mainloop()
+# 비즈니스 로직 처리
+class DiaryManager:
+    def __init__(self, api_manager):
+        self.api_manager = api_manager
+        self.diaries = {}
+
+    def save_entry(self, date, title, content):
+        response = self.api_manager.fetch_response(content)
+        self.diaries[date] = {'title': title, 'content': content, 'response': response}
+        return response
+
+    def load_entry(self, date):
+        return self.diaries.get(date, None)
+
+# UI 구성 관리
+class DiaryUI:
+    def __init__(self, master, config, diary_manager):
+        self.master = master
+        self.config = config
+        self.diary_manager = diary_manager
+        self.initialize_ui()
+
+    def initialize_ui(self):
+        self.master.title("Daily Talk")
+        self.master.geometry("800x600")
+        self.master.configure(bg=self.config.BG_COLOR)
+        self.initialize_calendar()
+
+    def initialize_calendar(self):
+        style = ttk.Style()
+        style.theme_use('clam')
+        today = datetime.now()
+        self.calendar = Calendar(self.master, selectmode='day', year=today.year, month=today.month, day=today.day, maxdate=today, bg=self.config.TEXT_COLOR, fg="white", font=self.config.FONT_STYLE)
+        self.calendar.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+        self.calendar.bind("<<CalendarSelected>>", self.open_diary_entry_popup)
+
+    def open_diary_entry_popup(self, event=None):
+        selected_date_str = self.calendar.get_date()
+        self.popup = Toplevel(self.master)
+        self.setup_diary_popup(selected_date_str)
+
+    def setup_diary_popup(self, date):
+        self.popup.title(f"Diary Entry for {date}")
+        self.popup.geometry("500x600")
+        self.popup.configure(bg=self.config.BG_COLOR)
+        
+        Label(self.popup, text="Title:", bg=self.config.BG_COLOR, fg='white', font=self.config.FONT_STYLE).pack(pady=(10,0))
+        title_entry = Entry(self.popup, bg=self.config.TEXT_COLOR, fg="white", font=self.config.FONT_STYLE)
+        title_entry.pack(fill=tk.X, padx=20)
+        
+        Label(self.popup, text="Content:", bg=self.config.BG_COLOR, fg='white', font=self.config.FONT_STYLE).pack(pady=(10,0))
+        content_text = Text(self.popup, height=10, bg=self.config.TEXT_COLOR, fg="white", font=self.config.FONT_STYLE)
+        content_text.pack(padx=20, pady=(0,10))
+        
+        Label(self.popup, text="AI Response:", bg=self.config.BG_COLOR, fg='white', font=self.config.FONT_STYLE).pack(pady=(10,0))
+        response_text = Text(self.popup, height=10, bg=self.config.RESPONSE_BG_COLOR, fg="white", font=self.config.FONT_STYLE, state=tk.DISABLED)
+        response_text.pack(padx=20, pady=(0,10))
+        
+        save_button = Button(self.popup, text="Save and Get Response", bg='#5f6368', fg='black', font=self.config.FONT_STYLE)
+        save_button.pack(pady=10)
+        
+        title_entry.bind("<KeyRelease>", lambda e: self.validate_input(title_entry, content_text, save_button))
+        content_text.bind("<KeyRelease>", lambda e: self.validate_input(title_entry, content_text, save_button))
+        self.validate_input(title_entry, content_text, save_button)
+
+        entry_data = self.diary_manager.load_entry(date)
+        if entry_data:
+            title_entry.insert(0, entry_data['title'])
+            content_text.insert('1.0', entry_data['content'])
+            response_text.config(state=tk.NORMAL)
+            response_text.insert('1.0', entry_data['response'])
+            response_text.config(state=tk.DISABLED)
+            save_button.config(state=tk.DISABLED)
+        else:
+            save_button.config(command=lambda: self.save_diary_entry(date, title_entry.get(), content_text.get("1.0", tk.END).strip(), response_text, save_button))
+
+    def validate_input(self, title_entry, content_text, save_button):
+        if title_entry.get().strip() and content_text.get("1.0", "end-1c").strip():
+            save_button.config(state=tk.NORMAL)
+        else:
+            save_button.config(state=tk.DISABLED)
+
+    def save_diary_entry(self, date, title, content, response_text, save_button):
+        response = self.diary_manager.save_entry(date, title, content)
+        response_text.config(state=tk.NORMAL)
+        response_text.delete('1.0', tk.END)
+        response_text.insert(tk.END, response)
+        response_text.config(state=tk.DISABLED)
+        save_button.config(state=tk.DISABLED)
+        self.calendar.calevent_create(date, 'Diary Entry', 'diary')
+        self.calendar.see(date)
+
+# 메인 실행 부분
+def main():
+    root = tk.Tk()
+    config = Config()
+    api_manager = OpenAIManager(config)
+    diary_manager = DiaryManager(api_manager)
+    app_ui = DiaryUI(root, config, diary_manager)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
